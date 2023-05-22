@@ -9,11 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	fsnotify "github.com/fsnotify/fsnotify"
+	"github.com/mitchellh/go-ps"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/samber/lo"
 )
 
 const namespace = "configmap_reload"
@@ -21,6 +24,7 @@ const namespace = "configmap_reload"
 var (
 	volumeDirs        volumeDirsFlag
 	webhook           webhookFlag
+	process           processFlag
 	webhookMethod     = flag.String("webhook-method", "POST", "the HTTP method url to use to send the webhook")
 	webhookStatusCode = flag.Int("webhook-status-code", 200, "the HTTP status code indicating successful triggering of reload")
 	webhookRetries    = flag.Int("webhook-retries", 1, "the amount of times to retry the webhook reload request")
@@ -71,6 +75,7 @@ func init() {
 func main() {
 	flag.Var(&volumeDirs, "volume-dir", "the config map volume directory to watch for updates; may be used multiple times")
 	flag.Var(&webhook, "webhook-url", "the url to send a request to when the specified config map volume directory has been updated")
+	flag.Var(&process, "process", "the process to restart when the specified config map volume directory has been updated")
 	flag.Parse()
 
 	if len(volumeDirs) < 1 {
@@ -101,6 +106,24 @@ func main() {
 					continue
 				}
 				log.Println("config map updated")
+				for _, p := range process {
+					begun := time.Now()
+					log.Printf("reloading process %s", p)
+					pid := findPID(p)
+					if pid == nil {
+						log.Printf("process %s not found", p)
+						setFailureMetrics(p, "process_not_found")
+						continue
+					}
+
+					err := syscall.Kill(*pid, syscall.SIGHUP)
+					if err != nil {
+						setFailureMetrics(p, "process_kill")
+						log.Printf("error: %v", err)
+						continue
+					}
+					setSuccessMetrics(p, begun)
+				}
 				for _, h := range webhook {
 					begun := time.Now()
 					req, err := http.NewRequest(*webhookMethod, h.String(), nil)
@@ -165,6 +188,19 @@ func main() {
 	log.Fatal(serverMetrics(*listenAddress, *metricPath))
 }
 
+func findPID(process string) *int {
+	processes, err := ps.Processes()
+	if err != nil {
+		return nil
+	}
+	for _, p := range processes {
+		if p.Executable() == process {
+			return lo.ToPtr(p.Pid())
+		}
+	}
+	return nil
+}
+
 func setFailureMetrics(h, reason string) {
 	requestErrorsByReason.WithLabelValues(h, reason).Inc()
 	lastReloadError.WithLabelValues(h).Set(1.0)
@@ -204,6 +240,8 @@ func serverMetrics(listenAddress, metricsPath string) error {
 
 type volumeDirsFlag []string
 
+type processFlag []string
+
 type webhookFlag []*url.URL
 
 func (v *volumeDirsFlag) Set(value string) error {
@@ -226,4 +264,13 @@ func (v *webhookFlag) Set(value string) error {
 
 func (v *webhookFlag) String() string {
 	return fmt.Sprint(*v)
+}
+
+func (p *processFlag) Set(value string) error {
+	*p = append(*p, value)
+	return nil
+}
+
+func (p *processFlag) String() string {
+	return fmt.Sprint(*p)
 }
