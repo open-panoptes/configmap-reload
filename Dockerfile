@@ -1,12 +1,7 @@
-# syntax=docker/dockerfile:1
-
 ARG BASEIMAGE=busybox
 
-ARG GO_VERSION
-FROM --platform=${BUILDOS}/${BUILDARCH} golang:${GO_VERSION} as builder
+FROM golang:1.20 as builder
 
-ENV GOOS ${TARGETOS}
-ENV GOARCH ${TARGETARCH}
 ENV CGO_ENABLED 0
 
 COPY . /src
@@ -15,7 +10,7 @@ RUN go build --installsuffix cgo -ldflags="-s -w -extldflags '-static'" -a -o /c
 
 FROM ${BASEIMAGE}
 
-LABEL org.opencontainers.image.source="https://github.com/jimmidyson/configmap-reload"
+LABEL org.opencontainers.image.source="https://github.com/rancher-sandbox/configmap-reload"
 
 USER 65534
 

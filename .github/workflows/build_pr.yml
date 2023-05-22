@@ -3,23 +3,24 @@ on:
   pull_request:
     branches:
       - main
+
+env:
+  REGISTRY: ghcr.io
+
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-    
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v2
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-
-    - name: Build image
-      run: |
-        docker buildx build \
-          --platform linux/arm64/v8,linux/amd64,linux/arm/v5,linux/arm/v6,linux/arm/v7,linux/ppc64le,linux/s390x \
-          --build-arg GO_VERSION=$(grep -m 1 go go.mod | cut -d\  -f2) \
-          -t ghcr.io/jimmidyson/configmap-reload:${{ github.event.pull_request.head.sha }} \
-          .
+    - name: Build and push image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./Dockerfile
+        push: false
+        tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/config-reloader:pr
