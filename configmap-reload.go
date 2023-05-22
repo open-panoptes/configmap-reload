@@ -85,8 +85,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if len(webhook) < 1 {
-		log.Println("Missing webhook-url")
+	if len(webhook) < 1 || len(process) < 1 {
+		log.Println("Missing: webhook-url or process")
 		log.Println()
 		flag.Usage()
 		os.Exit(1)
